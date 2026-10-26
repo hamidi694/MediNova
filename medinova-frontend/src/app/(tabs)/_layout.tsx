@@ -77,21 +77,6 @@ export default function TabsLayout() {
           ),
         }}
       />
-
-      
-      
-      <Tabs.Screen
-        name="medications"
-        options={{
-          href: null, 
-        }}
-      />
-      <Tabs.Screen
-        name="medical-record"
-        options={{
-          href: null,
-        }}
-      />
       <Tabs.Screen
         name="alerts"
         options={{
