@@ -13,7 +13,7 @@ const medicalRecordRoutes = require('./routes/medicalRecords');
 const analysisRoutes = require('./routes/analyses');
 const emergencyRoutes = require('./routes/emergency');
 const reportRoutes = require('./routes/reports');
-
+const notificationRoutes = require('./routes/notifications');
 const app = express();
 
 
@@ -29,6 +29,7 @@ app.use('/api/medical-records', medicalRecordRoutes);
 app.use('/api/analyses', analysisRoutes);
 app.use('/api/emergency', emergencyRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: ' API MediNova en ligne.' });

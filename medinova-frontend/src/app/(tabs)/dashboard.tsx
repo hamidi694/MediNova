@@ -16,6 +16,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { useHealthStore } from '@/store/health.store';
 import { useAppointmentsStore } from '@/store/appointments.store';
 import { useMedicationsStore } from '@/store/medications.store';
+import { useNotificationsStore } from '@/store/notifications.store';
 
 const METRICS: Record<string, any> = {
   heart_rate: { label: 'Cœur', unit: 'bpm', icon: 'heart', color: '#E56B6F', soft: '#FBE3E3', normal: [60, 100] },
@@ -42,13 +43,24 @@ export default function Dashboard() {
   const { appointments = [], loadAppointments } = useAppointmentsStore();
   const { medications = [], loadMedications, markTaken } = useMedicationsStore();
   
+  // 👈 Ajout de deleteNotification et checkReminders
+  const { notifications, loadNotifications, markAsRead, markAllAsRead, deleteNotification, checkReminders } = useNotificationsStore();
+  
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
   const [refreshing, setRefreshing] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [readAlerts, setReadAlerts] = useState<string[]>([]);
 
   const loadAll = async () => {
-    await Promise.all([loadMeasurements?.(), loadAppointments?.(), loadMedications?.()]);
+    await Promise.all([
+      loadMeasurements?.(),
+      loadAppointments?.(),
+      loadMedications?.(),
+    ]);
+ 
+    await checkReminders?.();
+    await loadNotifications?.();
   };
 
   useEffect(() => {
@@ -68,7 +80,6 @@ export default function Dashboard() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Bonjour,' : hour < 18 ? 'Bon après-midi,' : 'Bonsoir,';
 
-  
   const latestMeasures = useMemo(() => {
     const result: Record<string, any> = {};
     Object.keys(METRICS).forEach(type => {
@@ -100,6 +111,24 @@ export default function Dashboard() {
     });
     return list;
   }, [latestMeasures]);
+
+  const allNotifications = useMemo(() => {
+    const alertNotifs = alerts.map((a, idx) => {
+      const alertId = `alert-${idx}`;
+      return {
+        _id: alertId,
+        type: 'alert',
+        title: a.level === 'danger' ? 'Alerte critique' : 'Valeur à surveiller',
+        message: a.message,
+        level: a.level,
+        read: readAlerts.includes(alertId),
+        createdAt: new Date().toISOString(),
+      };
+    });
+    return [...alertNotifs, ...notifications];
+  }, [alerts, notifications, readAlerts]);
+
+  const unreadCount = allNotifications.filter(n => !n.read).length;
 
   const healthScore = useMemo(() => {
     if (measurements.length === 0) return 100;
@@ -163,7 +192,6 @@ export default function Dashboard() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         >
           
-        
           <AnimatedView delay={100} animation="down" style={styles.header}>
             <TouchableOpacity activeOpacity={0.7} onPress={() => router.push('/(tabs)/profile')} style={styles.avatarButton}>
               <LinearGradient colors={gradients.gold} style={styles.avatarRing}>
@@ -176,72 +204,101 @@ export default function Dashboard() {
             </View>
             <TouchableOpacity style={styles.iconBtn} onPress={() => setShowNotifications(!showNotifications)}>
               <Ionicons name={showNotifications ? 'notifications' : 'notifications-outline'} size={22} color={colors.primaryDark} />
-              {alerts.length > 0 && <View style={styles.notifDot} />}
+              {unreadCount > 0 && <View style={styles.notifDot} />}
             </TouchableOpacity>
           </AnimatedView>
 
-         
           {showNotifications && (
             <AnimatedView animation="down" delay={0}>
               <View style={styles.notifPanel}>
                 <View style={styles.notifHeader}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.notifPanelTitle}>
-                      {alerts.length > 0 ? `${alerts.length} alerte${alerts.length > 1 ? 's' : ''}` : 'Aucune alerte'}
+                      {unreadCount > 0 ? `${unreadCount} non lue${unreadCount > 1 ? 's' : ''}` : 'Toutes lues'}
                     </Text>
-                    <Text style={styles.notifPanelSubtitle}>Basé sur vos dernières mesures</Text>
+                    <Text style={styles.notifPanelSubtitle}>Alertes et rappels</Text>
                   </View>
                   <TouchableOpacity onPress={() => setShowNotifications(false)} style={styles.notifClose}>
                     <Ionicons name="close" size={18} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
 
-                {alerts.length === 0 ? (
+                {allNotifications.length === 0 ? (
                   <View style={styles.notifEmpty}>
                     <Ionicons name="checkmark-circle" size={22} color={colors.success} />
-                    <Text style={styles.notifEmptyText}>Tous vos indicateurs sont dans la norme.</Text>
+                    <Text style={styles.notifEmptyText}>Aucune notification pour l'instant.</Text>
                   </View>
                 ) : (
-                  alerts.map((alert, idx) => (
-                    <View 
-                      key={idx} 
-                      style={[
-                        styles.notifItem, 
-                        { borderLeftColor: alert.level === 'danger' ? colors.danger : '#E67E22' }
-                      ]}
-                    >
-                      <View style={[
-                        styles.notifItemIcon, 
-                        { backgroundColor: alert.level === 'danger' ? colors.danger + '20' : '#E67E22' + '20' }
-                      ]}>
-                        <Ionicons 
-                          name={alert.level === 'danger' ? 'warning' : 'alert-circle'} 
-                          size={16} 
-                          color={alert.level === 'danger' ? colors.danger : '#E67E22'} 
-                        />
-                      </View>
-                      <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={styles.notifItemTitle}>{alert.message}</Text>
-                        <Text style={styles.notifItemSub}>
-                          {alert.level === 'danger' ? 'Critique - Consultez un médecin' : 'À surveiller'}
-                        </Text>
-                      </View>
-                    </View>
-                  ))
+                  allNotifications.slice(0, 5).map((notif, idx) => {
+                    const isRead = notif.read;
+                    const iconName = notif.type === 'alert' ? 'warning' 
+                      : notif.type === 'appointment' ? 'calendar' 
+                      : notif.type === 'medication' ? 'medkit' 
+                      : 'information-circle';
+                    const iconColor = notif.level === 'danger' ? colors.danger 
+                      : notif.level === 'warning' ? '#E67E22' 
+                      : colors.primary;
+                    return (
+                      <TouchableOpacity 
+                        key={notif._id} 
+                        style={[
+                          styles.notifItem, 
+                          { borderLeftColor: iconColor },
+                          isRead && { opacity: 0.5 }
+                        ]}
+                        onPress={() => {
+                          if (notif._id.startsWith('alert-')) {
+                            setReadAlerts(prev => [...prev, notif._id]);
+                          } else {
+                            markAsRead(notif._id);
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.notifItemIcon, { backgroundColor: iconColor + '20' }]}>
+                          <Ionicons name={iconName} size={16} color={iconColor} />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 10 }}>
+                          <Text style={[styles.notifItemTitle, !isRead && { fontWeight: '800' }]}>{notif.title}</Text>
+                          <Text style={styles.notifItemSub}>{notif.message}</Text>
+                          <Text style={{ ...typography.caption, color: colors.textMuted, fontSize: 10, marginTop: 2 }}>{timeAgo(notif.createdAt)}</Text>
+                        </View>
+                        
+                       
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          {!isRead && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: iconColor }} />}
+                          
+                          {!notif._id.startsWith('alert-') && (
+                            <TouchableOpacity 
+                              onPress={() => deleteNotification?.(notif._id)} 
+                              style={{ padding: 4 }}
+                            >
+                              <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
                 )}
 
-                <TouchableOpacity 
-                  style={styles.notifSeeAll}
-                  onPress={() => { setShowNotifications(false); router.push('/(tabs)/health'); }}
-                >
-                  <Text style={styles.notifSeeAllText}>Voir toutes mes mesures</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.primary} />
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.sm }}>
+                  {unreadCount > 0 && (
+                    <TouchableOpacity onPress={() => markAllAsRead()} style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}>
+                      <Text style={[styles.notifSeeAllText, { color: colors.primary }]}>Tout lire</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity 
+                    onPress={() => { setShowNotifications(false); router.push('/(tabs)/health'); }}
+                    style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }}
+                  >
+                    <Text style={styles.notifSeeAllText}>Voir mes mesures</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </AnimatedView>
           )}
 
-         
           <AnimatedView delay={200} animation="down">
             <TouchableOpacity activeOpacity={0.85} onPress={() => router.push('/(tabs)/assistant')} style={styles.search}>
               <Ionicons name="sparkles" size={18} color={colors.accent} />
@@ -250,7 +307,6 @@ export default function Dashboard() {
             </TouchableOpacity>
           </AnimatedView>
 
-       
           <AnimatedView delay={230} animation="up">
             <TouchableOpacity style={styles.emergencyBtn} onPress={() => router.push('/(tabs)/profile')} activeOpacity={0.9}>
               <LinearGradient colors={['#E53E3E', '#C53030']} style={styles.emergencyGradient}>
@@ -261,7 +317,6 @@ export default function Dashboard() {
             </TouchableOpacity>
           </AnimatedView>
 
-        
           <AnimatedView delay={280} animation="up" style={styles.quickRow}>
             {quickActions.map((q) => (
               <TouchableOpacity key={q.label} activeOpacity={0.85} onPress={q.onPress} style={styles.quickItem}>
@@ -273,7 +328,6 @@ export default function Dashboard() {
             ))}
           </AnimatedView>
 
-         
           <AnimatedView delay={360} animation="zoom" style={{ marginTop: spacing.lg }}>
             <LinearGradient colors={gradients.primary} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.hero, shadows.strong]}>
               <View style={styles.heroGlow} />
@@ -294,12 +348,9 @@ export default function Dashboard() {
             </LinearGradient>
           </AnimatedView>
 
-          
           <AnimatedView delay={400} animation="up" style={styles.tipCard}>
             <LinearGradient colors={['#FDE68A', '#F59E0B']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tipGradient}>
-              <View style={styles.tipIcon}>
-                <Ionicons name="bulb" size={24} color="#FFF" />
-              </View>
+              <View style={styles.tipIcon}><Ionicons name="bulb" size={24} color="#FFF" /></View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.tipLabel}>CONSEIL DU JOUR</Text>
                 <Text style={styles.tipText}>{dailyTip}</Text>
@@ -307,12 +358,9 @@ export default function Dashboard() {
             </LinearGradient>
           </AnimatedView>
 
-         
           <AnimatedView delay={420} animation="up" style={styles.sectionRow}>
             <Text style={styles.section}>Mes dernières mesures</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/health')}>
-              <Text style={styles.seeAll}>Voir tout</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/health')}><Text style={styles.seeAll}>Voir tout</Text></TouchableOpacity>
           </AnimatedView>
           
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hList} style={styles.hBleed}>
@@ -335,25 +383,11 @@ export default function Dashboard() {
                         <Text style={[styles.metricValue, isAlert && { color: '#E67E22' }]}>{m ? m.value : '—'}</Text>
                         <Text style={styles.metricUnit}> {c.unit}</Text>
                       </View>
-                      
                       {chartData.length > 1 && (
                         <View style={{ marginLeft: -12, marginTop: 8 }}>
-                          <LineChart
-                            data={chartData}
-                            width={130}
-                            height={40}
-                            color={c.color}
-                            thickness={2}
-                            hideDataPoints
-                            hideYAxisText
-                            hideAxesAndRules
-                            curved
-                            initialSpacing={0}
-                            spacing={18}
-                          />
+                          <LineChart data={chartData} width={130} height={40} color={c.color} thickness={2} hideDataPoints hideYAxisText hideAxesAndRules curved initialSpacing={0} spacing={18} />
                         </View>
                       )}
-                      
                       <Text style={styles.metricDate}>{m ? timeAgo(m.date) : 'Aucune donnée'}</Text>
                     </BlurView>
                   </TouchableOpacity>
@@ -362,7 +396,6 @@ export default function Dashboard() {
             })}
           </ScrollView>
 
-        
           <AnimatedView delay={600} animation="up" style={styles.sectionRow}>
             <Text style={styles.section}>Objectifs du jour</Text>
           </AnimatedView>
@@ -372,17 +405,13 @@ export default function Dashboard() {
                 const progress = Math.min(100, (g.value / g.target) * 100);
                 return (
                   <View key={g.label} style={[styles.goalRow, idx > 0 && { borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }]}>
-                    <View style={[styles.goalIcon, { backgroundColor: g.color + '20' }]}>
-                      <Ionicons name={g.icon} size={18} color={g.color} />
-                    </View>
+                    <View style={[styles.goalIcon, { backgroundColor: g.color + '20' }]}><Ionicons name={g.icon} size={18} color={g.color} /></View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                         <Text style={styles.goalLabel}>{g.label}</Text>
                         <Text style={styles.goalValue}>{g.value}{g.unit} / {g.target}{g.unit}</Text>
                       </View>
-                      <View style={styles.progressBg}>
-                        <View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: g.color }]} />
-                      </View>
+                      <View style={styles.progressBg}><View style={[styles.progressFill, { width: `${progress}%`, backgroundColor: g.color }]} /></View>
                     </View>
                   </View>
                 );
@@ -390,12 +419,9 @@ export default function Dashboard() {
             </BlurView>
           </AnimatedView>
 
-         
           <AnimatedView delay={700} animation="up" style={styles.sectionRow}>
             <Text style={styles.section}>Prochain rendez-vous</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/appointments')}>
-              <Text style={styles.seeAll}>Gérer</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/appointments')}><Text style={styles.seeAll}>Gérer</Text></TouchableOpacity>
           </AnimatedView>
 
           {nextAppointment ? (
@@ -420,19 +446,13 @@ export default function Dashboard() {
             </AnimatedView>
           ) : (
             <AnimatedView delay={750} animation="fade">
-              <View style={styles.emptyCard}>
-                <Ionicons name="calendar-outline" size={28} color={colors.textMuted} />
-                <Text style={styles.emptyText}>Aucun rendez-vous prévu</Text>
-              </View>
+              <View style={styles.emptyCard}><Ionicons name="calendar-outline" size={28} color={colors.textMuted} /><Text style={styles.emptyText}>Aucun rendez-vous prévu</Text></View>
             </AnimatedView>
           )}
 
-         
           <AnimatedView delay={800} animation="up" style={styles.sectionRow}>
             <Text style={styles.section}>Médicaments du jour</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}>
-              <Text style={styles.seeAll}>Gérer</Text>
-            </TouchableOpacity>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/profile')}><Text style={styles.seeAll}>Gérer</Text></TouchableOpacity>
           </AnimatedView>
 
           {todaysMeds.length > 0 ? (
@@ -457,10 +477,7 @@ export default function Dashboard() {
             </AnimatedView>
           ) : (
             <AnimatedView delay={850} animation="fade">
-              <View style={styles.emptyCard}>
-                <Ionicons name="medkit-outline" size={28} color={colors.textMuted} />
-                <Text style={styles.emptyText}>Aucun médicament aujourd'hui</Text>
-              </View>
+              <View style={styles.emptyCard}><Ionicons name="medkit-outline" size={28} color={colors.textMuted} /><Text style={styles.emptyText}>Aucun médicament aujourd'hui</Text></View>
             </AnimatedView>
           )}
 
@@ -477,7 +494,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { padding: spacing.lg, paddingTop: 20, paddingBottom: 150 },
   orb: { position: 'absolute', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.55)' },
-
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
   avatarButton: { borderRadius: 27 },
   avatarRing: { width: 54, height: 54, borderRadius: 27, alignItems: 'center', justifyContent: 'center' },
@@ -486,57 +502,19 @@ const styles = StyleSheet.create({
   name: { ...typography.title, fontSize: 20, color: colors.primaryDeeper },
   iconBtn: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.85)', alignItems: 'center', justifyContent: 'center', ...shadows.soft },
   notifDot: { position: 'absolute', top: 12, right: 12, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger, borderWidth: 2, borderColor: '#FFF' },
-
-
-  notifPanel: {
-    backgroundColor: '#FFF',
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    ...shadows.soft,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-  },
-  notifHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
+  
+  notifPanel: { backgroundColor: '#FFF', borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, ...shadows.soft, borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
+  notifHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   notifPanelTitle: { ...typography.subtitle, fontWeight: '800', color: colors.primaryDeeper, fontSize: 16 },
   notifPanelSubtitle: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
   notifClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' },
-  notifEmpty: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: spacing.sm,
-    backgroundColor: '#F0FDF4',
-    borderRadius: radius.md,
-    marginBottom: spacing.sm,
-  },
+  notifEmpty: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: spacing.sm, backgroundColor: '#F0FDF4', borderRadius: radius.md, marginBottom: spacing.sm },
   notifEmptyText: { ...typography.caption, color: colors.success, fontWeight: '600' },
-  notifItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
-    backgroundColor: '#F8FAF9',
-    borderRadius: radius.md,
-    marginBottom: 8,
-    borderLeftWidth: 3,
-  },
+  notifItem: { flexDirection: 'row', alignItems: 'center', padding: spacing.sm, backgroundColor: '#F8FAF9', borderRadius: radius.md, marginBottom: 8, borderLeftWidth: 3 },
   notifItemIcon: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   notifItemTitle: { ...typography.body, fontWeight: '700', color: colors.primaryDeeper, fontSize: 13 },
   notifItemSub: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
-  notifSeeAll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingTop: spacing.sm,
-    marginTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-  },
+  notifSeeAll: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingTop: spacing.sm, marginTop: spacing.xs, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   notifSeeAllText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
 
   search: { flexDirection: 'row', alignItems: 'center', gap: 10, height: 58, borderRadius: radius.pill, backgroundColor: 'rgba(255,255,255,0.85)', paddingLeft: 18, paddingRight: 6, borderWidth: 1, borderColor: '#fff', ...shadows.soft },

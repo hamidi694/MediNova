@@ -2,6 +2,8 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Measurement = require('../models/Measurement');
+const Appointment = require('../models/Appointment');
 const { protect } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -233,6 +235,21 @@ router.put('/settings', protect, async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ message: 'Erreur serveur.', error: err.message });
+  }
+});
+
+
+router.delete('/delete-account', protect, async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    await Measurement.deleteMany({ user: userId });
+    await Appointment.deleteMany({ user: userId });
+    await User.findByIdAndDelete(userId);
+
+    res.json({ success: true, message: 'Compte supprimé définitivement.' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Erreur serveur.', error: err.message });
   }
 });
 

@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 
 import MedicationsModal from '@/components/MedicationsModal';
@@ -66,7 +67,6 @@ export default function Profile() {
 
   const [notifEnabled, setNotifEnabled] = useState(user?.notificationsEnabled ?? true);
   const [remindersEnabled, setRemindersEnabled] = useState(user?.remindersEnabled ?? true);
-  const [biometricEnabled, setBiometricEnabled] = useState(user?.biometricEnabled ?? false);
 
   const [oldPass, setOldPass] = useState('');
   const [newPass, setNewPass] = useState('');
@@ -89,7 +89,6 @@ export default function Profile() {
       setEditEmail(user.email);
       setNotifEnabled(user.notificationsEnabled ?? true);
       setRemindersEnabled(user.remindersEnabled ?? true);
-      setBiometricEnabled(user.biometricEnabled ?? false);
     }
 
     Animated.parallel([
@@ -147,9 +146,38 @@ export default function Profile() {
     await updateSettings({ remindersEnabled: value });
   };
 
-  const handleToggleBiometric = async (value: boolean) => {
-    setBiometricEnabled(value);
-    await updateSettings({ biometricEnabled: value });
+ 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Supprimer mon compte',
+      'Cette action est irréversible. Toutes vos données (mesures, rendez-vous, profil) seront définitivement supprimées.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const token = await AsyncStorage.getItem('token');
+              const res = await fetch('http://192.168.43.138:5000/api/auth/delete-account', {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              const json = await res.json();
+
+              if (json.success) {
+                await logout();
+                router.replace('/(auth)/login');
+              } else {
+                Alert.alert('Erreur', json.message || 'Suppression impossible.');
+              }
+            } catch {
+              Alert.alert('Erreur', 'Impossible de contacter le serveur.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const renderModalContent = () => {
@@ -205,12 +233,93 @@ export default function Profile() {
       case 'privacy':
         return (
           <>
-            <View style={styles.modalHeader}><View style={[styles.modalIconWrapper, { backgroundColor: '#FDF2E9' }]}><Ionicons name="shield-checkmark" size={24} color="#E67E22" /></View><Text style={styles.modalTitle}>Confidentialité</Text></View>
-            <Text style={styles.modalSubtitle}>Vos données sont précieuses.</Text>
-            <View style={styles.settingRow}>
-              <View><Text style={styles.settingTitle}>Biométrie</Text><Text style={styles.settingDesc}>Face ID / Empreinte</Text></View>
-              <Switch value={biometricEnabled} onValueChange={handleToggleBiometric} trackColor={{ false: '#E2E8F0', true: colors.primary }} />
+            <View style={styles.modalHeader}>
+              <View style={[styles.modalIconWrapper, { backgroundColor: '#FDF2E9' }]}>
+                <Ionicons name="shield-checkmark" size={24} color="#E67E22" />
+              </View>
+              <Text style={styles.modalTitle}>Confidentialité</Text>
             </View>
+            <Text style={styles.modalSubtitle}>Contrôlez vos données et votre vie privée.</Text>
+
+            
+            <Text style={styles.privacySectionTitle}>1. Protection des données</Text>
+            <Text style={styles.privacySectionText}>
+              Vos données personnelles et médicales sont chiffrées (AES-256) et stockées de manière sécurisée sur MongoDB Atlas. Aucun accès non autorisé n'est possible.
+            </Text>
+            <View style={styles.divider} />
+
+           
+            <Text style={styles.privacySectionTitle}>2. Gestion des données personnelles</Text>
+
+            <TouchableOpacity
+              style={styles.privacyActionRow}
+              onPress={() => { setActiveModal('edit'); }}
+            >
+              <Ionicons name="person-outline" size={18} color={colors.primary} />
+              <Text style={styles.privacyActionLabel}>Consulter / modifier mon profil</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.privacyActionRow}
+              onPress={handleDeleteAccount}
+            >
+              <Ionicons name="trash-outline" size={18} color={colors.danger} />
+              <Text style={[styles.privacyActionLabel, { color: colors.danger }]}>Supprimer mon compte et mes données</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.danger} />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+
+           
+            <Text style={styles.privacySectionTitle}>3. Confidentialité de l'assistant IA</Text>
+            <Text style={styles.privacySectionText}>
+              Vos questions et mesures sont envoyées à l'IA uniquement pour générer une réponse. Aucune donnée identifiante n'est transmise à un service externe, et rien n'est conservé après traitement.
+            </Text>
+            <View style={styles.divider} />
+
+            
+            <Text style={styles.privacySectionTitle}>4. Autorisations et notifications</Text>
+
+            <TouchableOpacity
+              style={styles.privacyActionRow}
+              onPress={() => { setActiveModal('notifications'); }}
+            >
+              <Ionicons name="notifications-outline" size={18} color={colors.primary} />
+              <Text style={styles.privacyActionLabel}>Gérer mes notifications</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.privacyActionRow}
+              onPress={() =>
+                Alert.alert(
+                  'Autorisations',
+                  'Pour modifier les autorisations système (notifications, appareil photo, stockage), ouvrez les réglages de votre téléphone → Applications → MediNova → Autorisations.'
+                )
+              }
+            >
+              <Ionicons name="settings-outline" size={18} color={colors.primary} />
+              <Text style={styles.privacyActionLabel}>Paramètres d'autorisations du téléphone</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+            <View style={styles.divider} />
+
+          
+            <Text style={styles.privacySectionTitle}>5. Politique de confidentialité</Text>
+
+            <TouchableOpacity
+              style={styles.privacyActionRow}
+              onPress={() =>
+                Alert.alert(
+                  'Politique de confidentialité',
+                  'Données collectées : nom, email, mesures de santé, rendez-vous.\n\nUtilisation : suivi personnel et réponses de l\'assistant IA.\n\nConservation : tant que votre compte existe.\n\nDroits : accès, modification, suppression à tout moment depuis cet écran.\n\nAucune revente de données à des tiers.'
+                )
+              }
+            >
+              <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+              <Text style={styles.privacyActionLabel}>Lire la politique de confidentialité</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
           </>
         );
       case 'help':
@@ -465,4 +574,30 @@ const styles = StyleSheet.create({
   faqHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   faqQuestion: { ...typography.subtitle, fontWeight: '600', color: colors.text, flex: 1, marginRight: 16 },
   faqAnswer: { ...typography.body, color: colors.textMuted, marginTop: 8, lineHeight: 22 },
+  // --- Styles Confidentialité ---
+  privacySectionTitle: {
+    ...typography.subtitle,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: spacing.md,
+    marginBottom: 6,
+  },
+  privacySectionText: {
+    ...typography.body,
+    color: colors.textMuted,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  privacyActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+  },
+  privacyActionLabel: {
+    flex: 1,
+    ...typography.body,
+    fontWeight: '600',
+    color: colors.text,
+  },
 });

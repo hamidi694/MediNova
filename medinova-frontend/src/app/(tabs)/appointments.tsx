@@ -14,6 +14,12 @@ import { useAppointmentsStore } from '@/store/appointments.store';
 const DAYS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 const SPECIALTIES = ['Cardiologie', 'Dermatologie', 'Généraliste', 'Pédiatrie'];
 
+const TIME_SLOTS = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
+  '11:00', '11:30', '14:00', '14:30', '15:00', '15:30',
+  '16:00', '16:30', '17:00', '17:30'
+];
+
 export default function Appointments() {
   const store = useAppointmentsStore();
   const appointments = store.appointments || [];
@@ -26,9 +32,10 @@ export default function Appointments() {
   
   const [doctor, setDoctor] = useState('');
   const [specialty, setSpecialty] = useState(SPECIALTIES[0]);
+  const [location, setLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedTime, setSelectedTime] = useState('14:30');
 
- 
   const next7Days = useMemo(() => {
     const days: Date[] = [];
     const today = new Date();
@@ -44,22 +51,25 @@ export default function Appointments() {
 
   const handleAdd = async () => {
     if (!doctor.trim()) return RNAlert.alert('Erreur', 'Veuillez entrer le nom du médecin.');
+    if (!location.trim()) return RNAlert.alert('Erreur', 'Veuillez entrer le lieu du rendez-vous.');
     
-  
     const date = new Date(selectedDate.getTime());
-    date.setHours(14, 30, 0, 0);
+    const [hours, minutes] = selectedTime.split(':').map(Number);
+    date.setHours(hours, minutes, 0, 0);
 
     const result = await addAppointment({
       doctor: `Dr. ${doctor.trim()}`,
       specialty,
       date: date.toISOString(),
-      location: 'Clinique du Parc',
+      location: location.trim(),
       mode: 'cabinet',
     });
 
     if (result.success) {
       setDoctor('');
+      setLocation('');
       setSelectedDate(new Date());
+      setSelectedTime('14:30');
       setModalVisible(false);
       RNAlert.alert('Succès', 'Rendez-vous ajouté avec succès.');
     } else {
@@ -81,7 +91,6 @@ export default function Appointments() {
         
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
           
-          {/* HEADER */}
           <AnimatedView delay={100} animation="down" style={styles.header}>
             <View>
               <Text style={styles.headerSubtitle}>Mon agenda</Text>
@@ -92,7 +101,6 @@ export default function Appointments() {
             </TouchableOpacity>
           </AnimatedView>
 
-          {/* TABS */}
           <AnimatedView delay={300} animation="up" style={styles.tabsContainer}>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]} 
@@ -112,7 +120,6 @@ export default function Appointments() {
             </TouchableOpacity>
           </AnimatedView>
 
-        
           {displayed.length === 0 ? (
             <AnimatedView delay={400} animation="fade" style={styles.emptyContainer}>
               <View style={styles.emptyIcon}>
@@ -174,7 +181,6 @@ export default function Appointments() {
           )}
         </ScrollView>
 
-  
         <Modal visible={modalVisible} transparent animationType="slide">
           <View style={styles.modalOverlay}>
             <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setModalVisible(false)} />
@@ -197,6 +203,18 @@ export default function Appointments() {
                   />
                 </View>
 
+                <Text style={styles.inputLabel}>Lieu</Text>
+                <View style={styles.inputWrap}>
+                  <Ionicons name="location-outline" size={20} color="rgba(255,255,255,0.6)" />
+                  <TextInput 
+                    style={styles.input} 
+                    placeholder="Ex: Clinique du Parc" 
+                    placeholderTextColor="rgba(255,255,255,0.4)" 
+                    value={location} 
+                    onChangeText={setLocation} 
+                  />
+                </View>
+
                 <Text style={styles.inputLabel}>Spécialité</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.specRow}>
                   {SPECIALTIES.map(s => (
@@ -210,11 +228,9 @@ export default function Appointments() {
                   ))}
                 </ScrollView>
 
-               
                 <Text style={styles.inputLabel}>Date</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRow}>
                   {next7Days.map((d, index) => {
-                    // On vérifie que d est bien une instance de Date
                     if (!(d instanceof Date) || isNaN(d.getTime())) return null;
                     
                     const isSelected = selectedDate && d.toDateString() === selectedDate.toDateString();
@@ -228,6 +244,22 @@ export default function Appointments() {
                       >
                         <Text style={[styles.dateChipDay, isSelected && { color: '#FFF' }]}>{label}</Text>
                         <Text style={[styles.dateChipNum, isSelected && { color: '#FFF' }]}>{d.getDate()}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={styles.inputLabel}>Heure</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateRow}>
+                  {TIME_SLOTS.map((time) => {
+                    const isSelected = selectedTime === time;
+                    return (
+                      <TouchableOpacity 
+                        key={time} 
+                        style={[styles.timeChip, isSelected && styles.dateChipActive]}
+                        onPress={() => setSelectedTime(time)}
+                      >
+                        <Text style={[styles.timeChipText, isSelected && { color: '#FFF' }]}>{time}</Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -307,6 +339,20 @@ const styles = StyleSheet.create({
   dateChipActive: { backgroundColor: colors.primary, ...shadows.strong },
   dateChipDay: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.6)', marginBottom: 2 },
   dateChipNum: { fontSize: 20, fontWeight: '800', color: '#FFF' },
+
+  timeChip: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderRadius: radius.md, 
+    backgroundColor: 'rgba(255,255,255,0.1)', 
+    alignItems: 'center', 
+    justifyContent: 'center' 
+  },
+  timeChipText: { 
+    fontSize: 15, 
+    fontWeight: '700', 
+    color: 'rgba(255,255,255,0.8)' 
+  },
 
   modalBtn: { borderRadius: radius.pill, overflow: 'hidden', marginTop: spacing.sm },
   modalBtnInner: { height: 58, alignItems: 'center', justifyContent: 'center' },
